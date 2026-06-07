@@ -26,7 +26,7 @@ class Options(BaseModel):
 
 
 class ConvertRequest(BaseModel):
-    url: str
+    url: str = ""
     options: Options = Options()
 
 
@@ -47,71 +47,53 @@ def health():
 async def convert(req: ConvertRequest):
     url = req.url.strip()
     if not url.startswith(("http://", "https://")):
-        raise HTTPException(400, "URL must start with http:// or https://")
+        return {"url": url, "title": None, "markdown": "", "metadata": {},
+                "word_count": 0, "status": "error", "note": "Missing or invalid URL"}
 
     # Fetch page
     try:
         html, content_type = await _fetch(url)
     except httpx.TimeoutException:
-        raise HTTPException(504, "URL fetch timed out")
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(502, f"URL returned HTTP {e.response.status_code}")
+        return {"url": url, "title": None, "markdown": "", "metadata": {},
+                "word_count": 0, "status": "error", "note": "URL fetch timed out"}
     except Exception as e:
-        raise HTTPException(502, f"Failed to fetch URL: {e}")
+        return {"url": url, "title": None, "markdown": "", "metadata": {},
+                "word_count": 0, "status": "error", "note": f"Failed to fetch URL: {e}"}
 
     # Only HTML content is supported
     if not content_type.startswith("text/html"):
         return {
-            "url": url,
-            "title": None,
-            "markdown": "",
-            "metadata": {},
-            "word_count": 0,
-            "note": f"Not an HTML page: {content_type}",
-            "status": "skipped",
+            "url": url, "title": None, "markdown": "", "metadata": {},
+            "word_count": 0, "note": f"Not an HTML page: {content_type}", "status": "skipped",
         }
 
     opts = req.options
 
     # Extract metadata (title, description, author, date, site_name)
     doc = trafilatura.bare_extraction(
-        html,
-        url=url,
-        favor_recall=True,
-        include_links=opts.include_links,
-        include_images=opts.include_images,
+        html, url=url, favor_recall=True,
+        include_links=opts.include_links, include_images=opts.include_images,
         include_tables=opts.include_tables,
     )
 
     # Extract main content as Markdown
     md = trafilatura.extract(
-        html,
-        output_format="markdown",
-        url=url,
-        favor_recall=True,
-        include_links=opts.include_links,
-        include_images=opts.include_images,
+        html, output_format="markdown", url=url, favor_recall=True,
+        include_links=opts.include_links, include_images=opts.include_images,
         include_tables=opts.include_tables,
     )
 
     if not md:
         return {
-            "url": url,
-            "title": getattr(doc, "title", None) if doc else None,
-            "markdown": "",
-            "metadata": _pick_meta(doc),
-            "word_count": 0,
-            "note": "No extractable content found",
-            "status": "empty",
+            "url": url, "title": getattr(doc, "title", None) if doc else None,
+            "markdown": "", "metadata": _pick_meta(doc),
+            "word_count": 0, "note": "No extractable content found", "status": "empty",
         }
 
     return {
-        "url": url,
-        "title": getattr(doc, "title", None) if doc else None,
-        "markdown": md,
-        "metadata": _pick_meta(doc),
-        "word_count": len(md.split()),
-        "status": "ok",
+        "url": url, "title": getattr(doc, "title", None) if doc else None,
+        "markdown": md, "metadata": _pick_meta(doc),
+        "word_count": len(md.split()), "status": "ok",
     }
 
 
